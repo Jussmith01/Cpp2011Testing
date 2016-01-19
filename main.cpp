@@ -5,13 +5,13 @@
 #include <mutex>
 #include <vector>
 #include <unordered_map>
+
 /* --------------------------------
           MenuResourceBase
 ---------------------------------- */
-struct MenuResourceBase {
-    MenuResourceBase() {
-        std::cout << "  MenuResourceBase::MenuResourceBase()\n";
-    }
+class MenuResourceBase {
+    public:
+    MenuResourceBase() {};
 
     virtual void load( std::string filename ) = 0;
     virtual bool is_loaded() = 0;
@@ -21,10 +21,13 @@ struct MenuResourceBase {
     virtual void cleanup() = 0;
 
     // Note: non-virtual destructor is OK here
-    ~MenuResourceBase() {
-        std::cout << "  MenuResourceBase::~MenuResourceBase()\n";
-    }
+    ~MenuResourceBase() {};
 };
+
+/* --------------------------------
+             Aliases
+---------------------------------- */
+typedef std::unordered_map< std::string,std::shared_ptr<MenuResourceBase> > resource_umap;
 
 /* --------------------------------
             ScreenWriter
@@ -48,7 +51,7 @@ public:
         if (!loaded_state) {
             //std::cout << "      ScreenWriter Loading Stuff!: " << filename << std::endl;
             float sum(0.0f);
-            for (unsigned i = 0; i < 500000000; ++i) {
+            for (unsigned i = 0; i < 2000000000; ++i) {
                 sum +=1.0f;
             }
             //std::cout << "      ScreenWriter Finished" << std::endl;
@@ -63,13 +66,25 @@ public:
     };
 
     /* Update the class */
-    void update() {};
+    void update() {
+        if (loaded_state) {
+
+        }
+    };
 
     /* Draw things */
-    void draw() {};
+    void draw() {
+        if (loaded_state) {
+
+        }
+    };
 
     /* Cleanup the class */
-    void cleanup() {};
+    void cleanup() {
+        if (loaded_state) {
+
+        }
+    };
 };
 
 /* --------------------------------
@@ -133,21 +148,25 @@ void thr_loader(std::shared_ptr<MenuResourceBase> p,std::string filename) {
     }
 }
 
-typedef std::unordered_map< std::string,std::shared_ptr<MenuResourceBase> > resource_umap;
-
+/* --------------------------------
+       Menu Resource Manager
+---------------------------------- */
 class MenuResourceManager {
 
     resource_umap umap;
-    std::vector<std::string> resourcestack;
+    std::vector<std::string> add_resourcestack;
+    std::vector<std::string> rmv_resourcestack;
 
-    public:
+public:
     /* Constructor */
     MenuResourceManager () {};
 
     /* Destructor */
-    ~MenuResourceManager () {};
+    ~MenuResourceManager () {umap.clear();};
 
-    /* Function for Requesting Resources */
+    /*------------------------------------
+      Function for Requesting Resources
+    -------------------------------------*/
     std::shared_ptr<MenuResourceBase> requestResource( std::string ident ) {
         unsigned n( ident.find_first_of(":") );
 
@@ -162,7 +181,7 @@ class MenuResourceManager {
                 umap.emplace(ident,std::make_shared<ImageLoader >());
             }
 
-            resourcestack.push_back(ident);
+            add_resourcestack.push_back(ident);
 
             it = umap.find(ident);
             return (*it).second;
@@ -171,23 +190,30 @@ class MenuResourceManager {
         return (*it).second;
     };
 
-    /* This function loads all resources in the stack */
+    /* ----------------------------------------------
+     This function loads all resources in the stack
+     ------------------------------------------------*/
     void manageResources () {
-
         resource_umap::iterator it;
 
-        while (!resourcestack.empty()) {
-            it = umap.find(resourcestack.back());
-            resourcestack.pop_back();
+        while (!add_resourcestack.empty()) {
+            it = umap.find(add_resourcestack.back());
+            add_resourcestack.pop_back();
             std::thread (thr_loader,(*it).second,(*it).first.substr((*it).first.find_first_of(":")+1)).detach();
         }
 
-        it = umap.begin();
-        for (;it != umap.end();++it) {
-            if ( (*it).second.use_count() < 2 ) {
-                (*it).second.reset();
-                umap.erase(it);
+        for (auto i(umap.begin());i != umap.end();++i) {
+            //std::cout << i->first << ":" << i->second.use_count() << std::endl;
+            if ( i->second.use_count() == 1 ) {
+                i->second.reset();
+                rmv_resourcestack.push_back(i->first);
             }
+        }
+
+        while (!rmv_resourcestack.empty()) {
+            it = umap.find(rmv_resourcestack.back());
+            rmv_resourcestack.pop_back();
+            umap.erase(it);
         }
     };
 
@@ -195,10 +221,14 @@ class MenuResourceManager {
     void printLoad() {
 
         for (auto&& i : umap) {
-            if (i.second.get()->is_loaded()) {std::cout << i.first << " LOADED!" << std::endl;} else {std::cout << i.first << " WAITING!" << std::endl;};
+            if (i.second.get()->is_loaded()) {
+                std::cout << i.first << " LOADED!" << std::endl;
+            } else {
+                std::cout << i.first << " WAITING!" << std::endl;
+            };
         }
 
-        std::cout << std::endl;
+        std::cout << "nresources: " << umap.size() << std::endl;
     };
 };
 
@@ -207,33 +237,40 @@ class MenuResourceManager {
 ---------------------------------- */
 int main() {
     std::string fname1("screenwriter:fontone.dat");
-    //std::string fname2("screenwriter:fonttwo.dat");
-    //std::string fname3("imageloader:imageone.dat");
-    //std::string fname4("imageloader:imagetwo.dat");
-    //std::string fname5("imageloader:imagethree.dat");
+    std::string fname2("screenwriter:fonttwo.dat");
+    std::string fname3("imageloader:imageone.dat");
+    std::string fname4("imageloader:imagetwo.dat");
+    std::string fname5("imageloader:imagethree.dat");
 
     MenuResourceManager mrm;
-    std::shared_ptr<MenuResourceBase> p = mrm.requestResource(fname1);
+    std::shared_ptr<MenuResourceBase> p1 = mrm.requestResource(fname1);
+    std::shared_ptr<MenuResourceBase> p2 = mrm.requestResource(fname1);
+    std::shared_ptr<MenuResourceBase> p3 = mrm.requestResource(fname2);
+    std::shared_ptr<MenuResourceBase> p4 = mrm.requestResource(fname3);
+    std::shared_ptr<MenuResourceBase> p5 = mrm.requestResource(fname4);
+    std::shared_ptr<MenuResourceBase> p6 = mrm.requestResource(fname5);
 
-    unsigned int n = std::thread::hardware_concurrency();
+    unsigned int n( std::thread::hardware_concurrency() );
     std::cout << n << " concurrent threads are supported.\n";
 
-    std::cout << "USE: " << p.use_count() << std::endl;
-
+    unsigned N(0);
     while (true) { // Simulate a graphix engine loop
         mrm.manageResources();
 
         std::cout << "Hi, I'm the main thread, waiting for my children threads to finish!\n";
-        std::this_thread::sleep_for(std::chrono::seconds(1));
+        std::cout << "COUNT: " << N << "\n";
+        std::this_thread::sleep_for( std::chrono::milliseconds(100) );
 
-        //mrm.printLoad();
+        mrm.printLoad();
 
-        if (p)
-            p.reset();
+        if ( p1 && p1.get()->is_loaded() )
+            p1.reset();
+
+        if ( p2 && p2.get()->is_loaded() )
+            p2.reset();
+
+        ++N;
     }
 
     std::cout << "Hi, I'm Main after the threads finished loading!\n";
-
-    //p1.reset();
-    std::cout << "All threads completed, the last one deleted Derived Classes\n";
 }
